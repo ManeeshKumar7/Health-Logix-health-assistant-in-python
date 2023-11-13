@@ -1,0 +1,602 @@
+import tkinter as tk
+import datetime
+import tkinter.messagebox
+from tkinter import messagebox
+from tkinter import ttk
+from authentication import register_user, authenticate_user
+from database_setup import Session, User, Workout, Food, WeightHistory
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+def register():
+    """Function to handle user registration."""
+    # Retrieve values from input fields
+    username_val = username_entry.get()
+    password_val = password_entry.get()
+    age_val = age_entry.get()
+    gender_val = gender_var.get()
+    height_val = height_entry.get()
+    weight_val = weight_entry.get()
+
+    # Validate input
+    if not (username_val and password_val and age_val and gender_val and height_val and weight_val):
+        messagebox.showerror("Error", "All fields are required!")
+        return
+
+    # Register user
+    success = register_user(username_val, password_val, int(age_val), gender_val, float(height_val), float(weight_val))
+    if success:
+        messagebox.showinfo("Success", "User registered successfully!")
+    else:
+        messagebox.showerror("Error", "Username already exists!")
+
+session = Session()
+def login():
+    """Function to handle user login."""
+    # Retrieve values from input fields
+    username_val = login_username_entry.get()
+    password_val = login_password_entry.get()
+
+    # Authenticate user
+    authenticated = authenticate_user(username_val, password_val)
+    if authenticated:
+        messagebox.showinfo("Success", "Login successful!")
+        root.withdraw()
+        # TODO: Navigate to dashboard or main application window
+        user = session.query(User).filter_by(username=username_val).first()  # fetch the user object
+        dashboard = Dashboard(user_id=user.user_id)  # open the dashboard for the authenticated user
+    else:
+        messagebox.showerror("Error", "Invalid username or password!")
+        
+class ProfileEditor(tk.Toplevel):
+    def __init__(self, user):
+        super().__init__()
+        self.user = user
+        self.title("Profile Editor")
+        
+        # Display profile details
+        self.username_label = tk.Label(self, text=f"Username: {self.user.username}")
+        self.username_label.pack(pady=5)
+        
+        self.age_label = tk.Label(self, text="Age:")
+        self.age_label.pack(pady=5)
+        self.age_entry = tk.Entry(self)
+        self.age_entry.pack(pady=5)
+        self.age_entry.insert(0, self.user.age)
+        
+        self.gender_label = tk.Label(self, text="Gender:")
+        self.gender_label.pack(pady=5)
+        self.gender_var = tk.StringVar(value=self.user.gender)
+        self.gender_dropdown = tk.OptionMenu(self, self.gender_var, "Male", "Female", "Other")
+        self.gender_dropdown.pack(pady=5)
+
+        self.height_label = tk.Label(self, text="Height (in cm):")
+        self.height_label.pack(pady=5)
+        self.height_entry = tk.Entry(self)
+        self.height_entry.pack(pady=5)
+        self.height_entry.insert(0, self.user.height)
+        
+        self.weight_label = tk.Label(self, text="Weight (in kg):")
+        self.weight_label.pack(pady=5)
+        self.weight_entry = tk.Entry(self)
+        self.weight_entry.pack(pady=5)
+        self.weight_entry.insert(0, self.user.weight)
+        
+        # Save button to save changes
+        self.save_btn = tk.Button(self, text="Save Changes", command=self.save_changes)
+        self.save_btn.pack(pady=20)
+        
+    def save_changes(self):
+        # Update user object with new values
+        self.user.age = int(self.age_entry.get())
+        self.user.gender = self.gender_var.get()
+        self.user.height = float(self.height_entry.get())
+        self.user.weight = float(self.weight_entry.get())
+
+        # Update the database
+        session = Session()
+        session.add(self.user)
+        session.commit()
+        session.close()
+
+        tk.messagebox.showinfo("Success", "Profile updated successfully!")
+        self.destroy()  # Close the Profile Editor window
+
+class PasswordChange(tk.Toplevel):
+    def __init__(self, user):
+        super().__init__()
+        self.user = user
+        self.title("Change Password")
+        
+        # Old Password
+        self.old_password_label = tk.Label(self, text="Old Password:")
+        self.old_password_label.pack(pady=5)
+        self.old_password_entry = tk.Entry(self, show="*")
+        self.old_password_entry.pack(pady=5)
+        
+        # New Password
+        self.new_password_label = tk.Label(self, text="New Password:")
+        self.new_password_label.pack(pady=5)
+        self.new_password_entry = tk.Entry(self, show="*")
+        self.new_password_entry.pack(pady=5)
+        
+        # Confirm New Password
+        self.confirm_password_label = tk.Label(self, text="Confirm New Password:")
+        self.confirm_password_label.pack(pady=5)
+        self.confirm_password_entry = tk.Entry(self, show="*")
+        self.confirm_password_entry.pack(pady=5)
+        
+        # Save button to save changes
+        self.save_btn = tk.Button(self, text="Change Password", command=self.change_password)
+        self.save_btn.pack(pady=20)
+        
+    def change_password(self):
+        old_password = self.old_password_entry.get()
+        new_password = self.new_password_entry.get()
+        confirm_password = self.confirm_password_entry.get()
+
+        # Check if old password matches current password
+        if not authenticate_user(self.user.username, old_password):
+            tk.messagebox.showerror("Error", "Old password is incorrect!")
+            return
+
+        # Check if new password matches confirmation
+        if new_password != confirm_password:
+            tk.messagebox.showerror("Error", "New passwords do not match!")
+            return
+
+        # Update password in database (Note: Ideally, you'd hash the password before storing it)
+        self.user.password = new_password
+        session = Session()
+        session.add(self.user)
+        session.commit()
+        session.close()
+
+        tk.messagebox.showinfo("Success", "Password changed successfully!")
+        self.destroy()  # Close the Password Change window
+
+class Dashboard(tk.Toplevel):
+    def __init__(self, user_id):
+        super().__init__()
+
+        self.user_id = user_id
+        self.title("HealthLogix Dashboard")
+        
+        # Fetch user data from database
+        session = Session()
+        self.user = session.query(User).filter_by(user_id=self.user_id).first()
+        session.close()
+
+        # Create Dashboard components
+        self.create_widgets()
+
+    def create_widgets(self):
+        """Create and place the dashboard widgets."""
+        
+        # Welcome Label
+        welcome_label = tk.Label(self, text=f"Welcome, {self.user.username}!")
+        welcome_label.pack(pady=10)
+        
+        # Profile Editor Button
+        profile_btn = tk.Button(self, text="Edit Profile", command=self.open_profile_editor)
+        profile_btn.pack(pady=10)
+        
+        # Recent Workouts Section
+        workouts_label = tk.Label(self, text="Recent Workouts:")
+        workouts_label.pack(pady=10, anchor="w", padx=10)
+        # TODO: Fetch recent workouts from the database and display them
+        self.recent_workouts_list = tk.Listbox(self)
+        self.recent_workouts_list.pack(pady=10, padx=10, fill="x")
+
+        # Populate the listbox with recent workouts
+        for workout in self.fetch_recent_workouts():
+            workout_info = f"{workout.date} - {workout.type_of_workout} - {workout.duration} mins"
+            if workout.calories_burned:
+                workout_info += f" - {workout.calories_burned} calories"
+            self.recent_workouts_list.insert(tk.END, workout_info)
+
+        # Recent Food Intake Section
+        foods_label = tk.Label(self, text="Recent Food Intake:")
+        foods_label.pack(pady=10, anchor="w", padx=10)
+        # TODO: Fetch recent food logs from the database and display them
+        self.recent_food_list = tk.Listbox(self)
+        self.recent_food_list.pack(pady=10, padx=10, fill="x")
+
+        # Populate the listbox with recent food logs
+        for food_log in self.fetch_recent_food_logs():
+            food_info = f"{food_log.date} - {food_log.food_name} - {food_log.calories} calories"
+            self.recent_food_list.insert(tk.END, food_info)
+
+        # Current BMI Section
+        bmi_label = tk.Label(self, text=f"Your Current BMI: {self.calculate_bmi()}")
+        bmi_label.pack(pady=10)
+        
+        # Health Tips Section
+        tips_label = tk.Label(self, text="Health Tips:")
+        tips_label.pack(pady=10, anchor="w", padx=10)
+        # TODO: Generate and display health tips based on user data
+        health_tips = self.generate_health_tips()
+        tips_content = tk.Label(self, text=health_tips, wraplength=400, justify="left")
+        tips_content.pack(pady=10, padx=10)
+        
+        # Weight Update Section
+        weight_label = tk.Label(self, text="Update Weight (kg):")
+        weight_label.pack(pady=10, anchor="w", padx=10)
+
+        self.weight_entry = tk.Entry(self)
+        self.weight_entry.pack(pady=10, padx=10)
+
+        weight_update_btn = tk.Button(self, text="Update Weight", command=self.update_weight)
+        weight_update_btn.pack(pady=10)
+        
+        # In the create_widgets method of Dashboard
+        analytics_btn = tk.Button(self, text="View Reports & Analytics", command=self.open_reports_analytics)
+        analytics_btn.pack(pady=10)
+        
+        # Navigation buttons
+        workout_btn = tk.Button(self, text="Log Workout", command=self.open_workout_logger)
+        workout_btn.pack(pady=10)
+
+        food_btn = tk.Button(self, text="Log Food", command=self.open_food_logger)
+        food_btn.pack(pady=10)
+
+        logout_btn = tk.Button(self, text="Logout", command=self.logout)
+        logout_btn.pack(pady=10)
+        
+        # Password Change Button
+        password_change_btn = tk.Button(self, text="Change Password", command=self.open_password_change)
+        password_change_btn.pack(pady=10)
+        
+    def open_profile_editor(self):
+        profile_editor = ProfileEditor(self.user)
+
+    def calculate_bmi(self):
+        """Calculate and return the user's BMI."""
+        bmi = self.user.weight / (self.user.height/100)**2
+        return round(bmi, 2)
+
+    def open_workout_logger(self):
+        """Open the workout logging window."""
+        # TODO: Implement the workout logging GUI
+        workout_logger = WorkoutLogger(user_id=self.user_id)
+        
+    def fetch_recent_workouts(self):
+        """Fetch the most recent workouts for the user."""
+        session = Session()
+        recent_workouts = session.query(Workout).filter_by(user_id=self.user_id).order_by(Workout.date.desc()).limit(5).all()
+        session.close()
+        return recent_workouts
+
+    def open_food_logger(self):
+        """Open the food logging window."""
+        # TODO: Implement the food logging GUI
+        food_logger = FoodLogger(user_id=self.user_id)
+        
+    def fetch_recent_food_logs(self):
+        """Fetch the most recent food logs for the user."""
+        session = Session()
+        recent_food_logs = session.query(Food).filter_by(user_id=self.user_id).order_by(Food.date.desc()).limit(5).all()
+        session.close()
+        return recent_food_logs
+    
+    def generate_health_tips(self):
+        """Generate health tips based on user's data."""
+        bmi = self.calculate_bmi()
+    
+        if bmi < 18.5:
+            return "Your BMI indicates you're underweight. Consider incorporating nutrient-rich foods in your diet and consult a nutritionist for guidance."
+        elif 18.5 <= bmi < 24.9:
+            return "Your BMI is in the normal range. Continue with your balanced diet and regular exercise to maintain good health."
+        elif 24.9 <= bmi < 30:
+            return "Your BMI indicates you're overweight. Regular exercise and a balanced diet can help in achieving a healthy weight."
+        else:
+            return "Your BMI indicates obesity. Consider seeking guidance from a health professional for a structured weight loss plan."
+
+    def update_weight(self):
+        """Function to update the user's weight in the database."""
+        weight = self.weight_entry.get()
+        if not weight:
+            tk.messagebox.showerror("Error", "Please enter a weight.")
+            return
+
+        new_weight_entry = WeightHistory(user_id=self.user_id, weight=float(weight))
+        session = Session()
+        session.add(new_weight_entry)
+        session.commit()
+        self.user = session.query(User).filter_by(user_id=self.user_id).first()
+        session.close()
+
+        tk.messagebox.showinfo("Success", "Weight updated successfully!")
+
+    def open_reports_analytics(self):
+        """Open the Reports & Analytics window."""
+        reports_analytics = ReportsAnalytics(user_id=self.user_id, user=self.user)
+        
+    def open_password_change(self):
+        password_change = PasswordChange(self.user)
+
+    def logout(self):
+        """Logout the user and close the dashboard."""
+        self.destroy()  # Close the dashboard window
+        root.deiconify()  # Show the main login/registration window again
+
+# Sample usage (replace `1` with a valid user_id from your database)
+# dashboard = Dashboard(user_id=1)
+# dashboard.mainloop()
+
+class WorkoutLogger(tk.Toplevel):
+    def __init__(self, user_id):
+        super().__init__()
+
+        self.user_id = user_id
+        self.title("Log Workout")
+
+        # Workout Type
+        self.workout_type_label = tk.Label(self, text="Workout Type:")
+        self.workout_type_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        self.workout_type_var = tk.StringVar()
+        self.workout_types = ["Running", "Cycling", "Weightlifting", "Yoga", "Swimming"]
+        self.workout_type_dropdown = tk.OptionMenu(self, self.workout_type_var, *self.workout_types)
+        self.workout_type_dropdown.grid(row=0, column=1, padx=10, pady=10)
+
+        # Duration
+        self.duration_label = tk.Label(self, text="Duration (in minutes):")
+        self.duration_label.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        
+        self.duration_entry = tk.Entry(self)
+        self.duration_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        # Calories Burned (optional)
+        self.calories_label = tk.Label(self, text="Calories Burned:")
+        self.calories_label.grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        
+        self.calories_entry = tk.Entry(self)
+        self.calories_entry.grid(row=2, column=1, padx=10, pady=10)
+
+        # Log Button
+        self.log_button = tk.Button(self, text="Log Workout", command=self.log_workout)
+        self.log_button.grid(row=3, column=0, columnspan=2, pady=20)
+
+    def log_workout(self):
+        """Function to handle logging the workout to the database."""
+        # Retrieve values from the input fields
+        workout_type = self.workout_type_var.get()
+        duration = self.duration_entry.get()
+        calories = self.calories_entry.get()
+
+        # Validation
+        if not (workout_type and duration):
+            tk.messagebox.showerror("Error", "Please fill in all required fields.")
+            return
+
+        # TODO: Log the workout data to the database
+        new_workout = Workout(user_id=self.user_id, date=datetime.date.today(), 
+                          type_of_workout=workout_type, duration=int(duration), 
+                          calories_burned=float(calories) if calories else None)
+        session = Session()
+        session.add(new_workout)
+        session.commit()
+        session.close()
+
+        tk.messagebox.showinfo("Success", "Workout logged successfully!")
+        self.destroy()  # Close the Workout Logger window first
+        self.master.destroy()  # Close the Dashboard window
+        dashboard = Dashboard(user_id=self.user_id)  # Reopen the Dashboard
+
+class FoodLogger(tk.Toplevel):
+    def __init__(self, user_id):
+        super().__init__()
+
+        self.user_id = user_id
+        self.title("Log Food")
+
+        # Food Name
+        self.food_name_label = tk.Label(self, text="Food Name:")
+        self.food_name_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        self.food_name_entry = tk.Entry(self)
+        self.food_name_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        # Calories
+        self.calories_label = tk.Label(self, text="Calories:")
+        self.calories_label.grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        
+        self.calories_entry = tk.Entry(self)
+        self.calories_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        # Log Button
+        self.log_button = tk.Button(self, text="Log Food", command=self.log_food)
+        self.log_button.grid(row=2, column=0, columnspan=2, pady=20)
+
+    def log_food(self):
+        """Function to handle logging the food to the database."""
+        # Retrieve values from the input fields
+        food_name = self.food_name_entry.get()
+        calories = self.calories_entry.get()
+
+        # Validation
+        if not (food_name and calories):
+            tk.messagebox.showerror("Error", "Please fill in all required fields.")
+            return
+
+        # Log the food data to the database
+        new_food = Food(user_id=self.user_id, date=datetime.date.today(), 
+                        food_name=food_name, calories=float(calories))
+        session = Session()
+        session.add(new_food)
+        session.commit()
+        session.close()
+
+        tk.messagebox.showinfo("Success", "Food logged successfully!")
+        self.destroy()  # Close the Food Logger window
+        self.master.destroy()  # Close the Dashboard window
+        dashboard = Dashboard(user_id=self.user_id)  # Reopen the Dashboard
+
+class ReportsAnalytics(tk.Toplevel):
+    def __init__(self, user_id, user):
+        super().__init__()
+
+        self.user_id = user_id
+        self.user = user
+        self.title("Reports & Analytics")
+
+        # Placeholder for the graphs
+        self.calorie_graph_frame = tk.Frame(self)
+        self.calorie_graph_frame.pack(pady=20, padx=20)
+
+        self.workout_graph_frame = tk.Frame(self)
+        self.workout_graph_frame.pack(pady=20, padx=20)
+
+        self.bmi_graph_frame = tk.Frame(self)
+        self.bmi_graph_frame.pack(pady=20, padx=20)
+
+        # Generate the graphs (placeholder methods for now)
+        self.generate_calorie_graph()
+        self.generate_workout_graph()
+        self.generate_bmi_graph()
+
+    def generate_calorie_graph(self):
+        # Fetch calorie data from the database
+        session = Session()
+        today = datetime.date.today()
+        seven_days_ago = today - datetime.timedelta(days=7)
+        food_entries = session.query(Food).filter(Food.user_id == self.user_id, Food.date >= seven_days_ago).all()
+        session.close()
+        
+        # Organize data by day
+        days = [(today - datetime.timedelta(days=i)).strftime('%a') for i in range(7)]
+        daily_calories = {day: 0 for day in days}
+        
+        for entry in food_entries:
+            day_name = entry.date.strftime('%a')
+            daily_calories[day_name] += entry.calories
+            
+        # Plot the data
+        fig, ax = plt.subplots(figsize=(5, 3))
+        ax.plot(days, [daily_calories[day] for day in reversed(days)], marker='o')
+        ax.set_title("Calorie Intake Over the Week")
+        ax.set_ylabel("Calories")
+        ax.grid(True)
+        
+        canvas = FigureCanvasTkAgg(fig, master=self.calorie_graph_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+    def generate_workout_graph(self):
+        # Fetch workout durations from the database
+        session = Session()
+        today = datetime.date.today()
+        seven_days_ago = today - datetime.timedelta(days=7)
+        workout_entries = session.query(Workout).filter(Workout.user_id == self.user_id, Workout.date >= seven_days_ago).all()
+        session.close()
+        
+        # Organize data by day
+        days = [(today - datetime.timedelta(days=i)).strftime('%a') for i in range(7)]
+        daily_workout = {day: 0 for day in days}
+        
+        for entry in workout_entries:
+            day_name = entry.date.strftime('%a')
+            daily_workout[day_name] += entry.duration
+            
+        # Plot the data
+        fig, ax = plt.subplots(figsize=(5, 3))
+        ax.bar(days, [daily_workout[day] for day in reversed(days)], color='skyblue')
+        ax.set_title("Workout Duration Over the Week")
+        ax.set_ylabel("Minutes")
+        ax.grid(axis='y')
+        
+        canvas = FigureCanvasTkAgg(fig, master=self.workout_graph_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+    def generate_bmi_graph(self):
+        # Fetch weight data from the database
+        session = Session()
+        today = datetime.date.today()
+        six_months_ago = today - datetime.timedelta(days=6*30)  # Approximation
+        weight_entries = session.query(WeightHistory).filter(WeightHistory.user_id == self.user_id, WeightHistory.date >= six_months_ago).order_by(WeightHistory.date).all()
+        session.close()
+        
+        # Calculate BMI for each entry
+        user_height = self.user.height / 100  # Convert cm to meters
+        months = []
+        bmi_values = []
+        
+        for entry in weight_entries:
+            months.append(entry.date.strftime('%b'))
+            bmi = entry.weight / (user_height ** 2)
+            bmi_values.append(bmi)
+            
+        # Plot the data
+        fig, ax = plt.subplots(figsize=(5, 3))
+        ax.plot(months, bmi_values, marker='o', color='green')
+        ax.set_title("BMI Trend Over Months")
+        ax.set_ylabel("BMI")
+        ax.grid(True)
+        
+        canvas = FigureCanvasTkAgg(fig, master=self.bmi_graph_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
+
+# Main window
+root = tk.Tk()
+root.title("HealthLogix")
+
+# Registration Frame
+register_frame = tk.LabelFrame(root, text="Register", padx=10, pady=10)
+register_frame.pack(padx=20, pady=20, fill="x")
+
+username_label = tk.Label(register_frame, text="Username:")
+username_label.grid(row=0, column=0, sticky="w", pady=5)
+username_entry = tk.Entry(register_frame)
+username_entry.grid(row=0, column=1, pady=5)
+
+password_label = tk.Label(register_frame, text="Password:")
+password_label.grid(row=1, column=0, sticky="w", pady=5)
+password_entry = tk.Entry(register_frame, show="*")
+password_entry.grid(row=1, column=1, pady=5)
+
+age_label = tk.Label(register_frame, text="Age:")
+age_label.grid(row=2, column=0, sticky="w", pady=5)
+age_entry = tk.Entry(register_frame)
+age_entry.grid(row=2, column=1, pady=5)
+
+gender_label = tk.Label(register_frame, text="Gender:")
+gender_label.grid(row=3, column=0, sticky="w", pady=5)
+gender_var = tk.StringVar()
+gender_options = ["Male", "Female", "Other"]
+gender_dropdown = tk.OptionMenu(register_frame, gender_var, *gender_options)
+gender_dropdown.grid(row=3, column=1, pady=5)
+
+height_label = tk.Label(register_frame, text="Height (in cm):")
+height_label.grid(row=4, column=0, sticky="w", pady=5)
+height_entry = tk.Entry(register_frame)
+height_entry.grid(row=4, column=1, pady=5)
+
+weight_label = tk.Label(register_frame, text="Weight (in kg):")
+weight_label.grid(row=5, column=0, sticky="w", pady=5)
+weight_entry = tk.Entry(register_frame)
+weight_entry.grid(row=5, column=1, pady=5)
+
+register_btn = tk.Button(register_frame, text="Register", command=register)
+register_btn.grid(row=6, column=0, columnspan=2, pady=20)
+
+# Login Frame
+login_frame = tk.LabelFrame(root, text="Login", padx=10, pady=10)
+login_frame.pack(padx=20, pady=20, fill="x")
+
+login_username_label = tk.Label(login_frame, text="Username:")
+login_username_label.grid(row=0, column=0, sticky="w", pady=5)
+login_username_entry = tk.Entry(login_frame)
+login_username_entry.grid(row=0, column=1, pady=5)
+
+login_password_label = tk.Label(login_frame, text="Password:")
+login_password_label.grid(row=1, column=0, sticky="w", pady=5)
+login_password_entry = tk.Entry(login_frame, show="*")
+login_password_entry.grid(row=1, column=1, pady=5)
+
+login_btn = tk.Button(login_frame, text="Login", command=login)
+login_btn.grid(row=2, column=0, columnspan=2, pady=20)
+
+root.mainloop()
