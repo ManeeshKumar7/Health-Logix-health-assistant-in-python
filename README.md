@@ -51,7 +51,7 @@ HealthLogix/
 
 ## ⚙️ Installation
 ```bash
-git clone <your-repo-link>
+git clone <https://github.com/ManeeshKumar7/Health-Logix-health-assistant-in-python>
 cd HealthLogix
 pip install -r requirements.txt
 ```
